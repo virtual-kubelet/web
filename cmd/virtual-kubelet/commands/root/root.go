@@ -24,10 +24,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/virtual-kubelet/virtual-kubelet/errdefs"
 	"github.com/virtual-kubelet/virtual-kubelet/log"
-	"github.com/virtual-kubelet/virtual-kubelet/manager"
 	"github.com/virtual-kubelet/virtual-kubelet/node"
 	"github.com/virtual-kubelet/virtual-kubelet/providers"
-	"github.com/virtual-kubelet/virtual-kubelet/providers/register"
+	"github.com/virtual-kubelet/web"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -106,11 +105,6 @@ func runRootCommand(ctx context.Context, c Opts) error {
 	go podInformerFactory.Start(ctx.Done())
 	go scmInformerFactory.Start(ctx.Done())
 
-	rm, err := manager.NewResourceManager(podInformer.Lister(), secretInformer.Lister(), configMapInformer.Lister(), serviceInformer.Lister())
-	if err != nil {
-		return errors.Wrap(err, "could not create resource manager")
-	}
-
 	apiConfig, err := getAPIConfig(c)
 	if err != nil {
 		return err
@@ -120,16 +114,11 @@ func runRootCommand(ctx context.Context, c Opts) error {
 		return err
 	}
 
-	initConfig := register.InitConfig{
-		ConfigPath:      c.ProviderConfigPath,
-		NodeName:        c.NodeName,
-		OperatingSystem: c.OperatingSystem,
-		ResourceManager: rm,
-		DaemonPort:      int32(c.ListenPort),
-		InternalIP:      os.Getenv("VKUBELET_POD_IP"),
+	if c.Provider != "" && c.Provider != "web" {
+		return errdefs.InvalidInputf("provider %q is not supported: only the web provider is supported")
 	}
 
-	p, err := register.GetProvider(c.Provider, initConfig)
+	p, err := web.NewBrokerProvider(c.NodeName, c.OperatingSystem, int32(c.ListenPort))
 	if err != nil {
 		return err
 	}
@@ -177,13 +166,13 @@ func runRootCommand(ctx context.Context, c Opts) error {
 	eb.StartRecordingToSink(&corev1client.EventSinkImpl{Interface: client.CoreV1().Events(c.KubeNamespace)})
 
 	pc, err := node.NewPodController(node.PodControllerConfig{
-		PodClient:         client.CoreV1(),
-		PodInformer:       podInformer,
-		EventRecorder:     eb.NewRecorder(scheme.Scheme, corev1.EventSource{Component: path.Join(pNode.Name, "pod-controller")}),
-		Provider:          p,
-		SecretInformer:    secretInformer,
-		ConfigMapInformer: configMapInformer,
-		ServiceInformer:   serviceInformer,
+		PodClient:       client.CoreV1(),
+		PodInformer:     podInformer,
+		EventRecorder:   eb.NewRecorder(scheme.Scheme, corev1.EventSource{Component: path.Join(pNode.Name, "pod-controller")}),
+		Provider:        p,
+		SecretLister:    secretInformer.Lister(),
+		ConfigMapLister: configMapInformer.Lister(),
+		ServiceLister:   serviceInformer.Lister(),
 	})
 	if err != nil {
 		return errors.Wrap(err, "error setting up pod controller")
