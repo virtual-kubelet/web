@@ -8,4 +8,4 @@ kube_rust = { git = "https://github.com/avranju/kube-rust", rev = "058de6366d0d7
 virtual-kubelet-adapter = { git = "https://github.com/avranju/rust-virtual-kubelet-adapter", rev = "4250103d31e2864725e47bdd23295e79ee12b6d0"}
 log = "0.4"
 env_logger = "0.4"
-time = "0.1"
+time = "0.2"
